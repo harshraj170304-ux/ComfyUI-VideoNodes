@@ -610,9 +610,10 @@ class VideoCombine:
             # Add codec and quality settings
             args += ["-c:v", codec]
             
-            # Add CRF/quality
+            # Add CRF/quality - use qp for NVENC (more compatible than cq)
             if "nvenc" in codec:
-                args += ["-cq", str(crf), "-rc", "vbr"]
+                # For NVENC: use -qp for constant quality, supported in more ffmpeg versions
+                args += ["-rc", "constqp", "-qp", str(crf)]
             else:
                 args += ["-crf", str(crf)]
             
