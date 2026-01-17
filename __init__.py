@@ -2,6 +2,7 @@
 ComfyUI-VideoNodes
 Custom nodes for video upload and combine operations in ComfyUI.
 Supports both GPU and CPU processing.
+Based on VideoHelperSuite architecture with GPU encoder support.
 """
 
 from .video_nodes import (
@@ -20,7 +21,7 @@ __all__ = [
 ]
 
 # Version info
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "ComfyUI-VideoNodes"
 
 # Web directory for custom JavaScript (if needed in future)
