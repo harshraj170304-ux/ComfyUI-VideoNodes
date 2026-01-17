@@ -610,10 +610,29 @@ class VideoCombine:
             # Add codec and quality settings
             args += ["-c:v", codec]
             
-            # Add CRF/quality - use qp for NVENC (more compatible than cq)
+            # Add CRF/quality - detect if NVENC is actually available
             if "nvenc" in codec:
-                # For NVENC: use -qp for constant quality, supported in more ffmpeg versions
-                args += ["-rc", "constqp", "-qp", str(crf)]
+                # Check if NVENC is actually available in this ffmpeg build
+                try:
+                    test_result = subprocess.run(
+                        [ffmpeg_path, "-hide_banner", "-encoders"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    has_nvenc = "nvenc" in test_result.stdout.lower()
+                except:
+                    has_nvenc = False
+                
+                if not has_nvenc:
+                    # Fall back to libx264/libx265
+                    if "hevc" in codec or "h265" in codec:
+                        codec = "libx265"
+                    else:
+                        codec = "libx264"
+                    print(f"[VideoNodes] NVENC not available in ffmpeg, falling back to {codec}")
+                    args = [args[0]] + args[1:args.index("-c:v")] + ["-c:v", codec, "-crf", str(crf)]
+                else:
+                    # NVENC available, but use simple quality setting
+                    args += ["-b:v", "5M"]  # Use bitrate instead of complex quality options
             else:
                 args += ["-crf", str(crf)]
             
