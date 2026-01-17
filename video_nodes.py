@@ -245,6 +245,10 @@ class VideoUpload:
                     "max": 100,
                     "step": 1,
                 }),
+                "device": (["auto", "cpu", "gpu"], {
+                    "default": "auto",
+                    "tooltip": "Device for frame processing: auto (detect), cpu (force CPU), gpu (force GPU/CUDA)"
+                }),
             }
         }
     
@@ -285,7 +289,7 @@ class VideoUpload:
             return (int(parts[0]), int(parts[1]))
     
     def load_video(self, video, force_rate=0, force_size="Disabled", 
-                   frame_load_cap=0, skip_first_frames=0, select_every_nth=1):
+                   frame_load_cap=0, skip_first_frames=0, select_every_nth=1, device="auto"):
         if cv2 is None:
             raise ImportError("OpenCV (cv2) is required. Install with: pip install opencv-python")
         
@@ -346,6 +350,13 @@ class VideoUpload:
         frames_array = np.stack(frames, axis=0)
         frames_tensor = torch.from_numpy(frames_array)
         
+        # Move to specified device
+        if device == "gpu" and torch.cuda.is_available():
+            frames_tensor = frames_tensor.to("cuda")
+        elif device == "auto" and torch.cuda.is_available():
+            frames_tensor = frames_tensor.to("cuda")
+        # CPU is default, no action needed
+        
         output_height = frames_tensor.shape[1]
         output_width = frames_tensor.shape[2]
         
@@ -377,11 +388,12 @@ class VideoUploadPath:
                 "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": BIGMAX}),
                 "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": BIGMAX}),
                 "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 100}),
+                "device": (["auto", "cpu", "gpu"], {"default": "auto"}),
             }
         }
     
     def load_video(self, video_path, force_rate=0, force_size="Disabled",
-                   frame_load_cap=0, skip_first_frames=0, select_every_nth=1):
+                   frame_load_cap=0, skip_first_frames=0, select_every_nth=1, device="auto"):
         # Reuse VideoUpload logic
         uploader = VideoUpload()
         # Temporarily override the path resolution
@@ -389,7 +401,7 @@ class VideoUploadPath:
         folder_paths.get_annotated_filepath = lambda x: video_path
         try:
             result = uploader.load_video("", force_rate, force_size, frame_load_cap, 
-                                         skip_first_frames, select_every_nth)
+                                         skip_first_frames, select_every_nth, device)
         finally:
             folder_paths.get_annotated_filepath = original_get_annotated
         return result
@@ -429,6 +441,10 @@ class VideoCombine:
                 "format": (get_video_formats(),),
                 "pingpong": ("BOOLEAN", {"default": False}),
                 "save_output": ("BOOLEAN", {"default": True}),
+                "device": (["auto", "cpu", "gpu"], {
+                    "default": "auto",
+                    "tooltip": "Encoding device: auto (detect GPU), cpu (force software encoding), gpu (force NVENC/hardware encoding)"
+                }),
             },
             "optional": {
                 "audio": ("AUDIO",),
@@ -455,6 +471,7 @@ class VideoCombine:
         format: str = "video/h264-mp4",
         pingpong: bool = False,
         save_output: bool = True,
+        device: str = "auto",
         audio=None,
         crf: int = 19,
         prompt=None,
@@ -550,11 +567,28 @@ class VideoCombine:
         
         else:
             # Use ffmpeg for video formats
-            use_gpu = "gpu" in format_ext.lower()
+            # Determine if we should use GPU encoding based on device selection
+            if device == "gpu":
+                use_gpu = True
+            elif device == "cpu":
+                use_gpu = False
+            else:  # auto
+                use_gpu = "gpu" in format_ext.lower() or torch.cuda.is_available()
+            
             config = get_format_config(format, use_gpu)
             
-            codec = config["codec_gpu"] if config.get("use_gpu") else config["codec"]
-            extra_args = config["extra_args_gpu"] if config.get("use_gpu") else config["extra_args"]
+            # Override config based on device selection
+            if device == "gpu" and torch.cuda.is_available():
+                codec = config["codec_gpu"]
+                extra_args = config["extra_args_gpu"]
+                print(f"[VideoNodes] Using GPU encoder: {codec}")
+            elif device == "cpu":
+                codec = config["codec"]
+                extra_args = config["extra_args"]
+                print(f"[VideoNodes] Forcing CPU encoder: {codec}")
+            else:
+                codec = config["codec_gpu"] if config.get("use_gpu") else config["codec"]
+                extra_args = config["extra_args_gpu"] if config.get("use_gpu") else config["extra_args"]
             
             file = f"{filename}_{counter:05}.{config['extension']}"
             file_path = os.path.join(full_output_folder, file)
