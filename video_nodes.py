@@ -607,36 +607,39 @@ class VideoCombine:
             if loop_count > 0:
                 args += ["-vf", f"loop=loop={loop_count}:size={num_frames}"]
             
-            # Add codec and quality settings
-            args += ["-c:v", codec]
-            
-            # Add CRF/quality - detect if NVENC is actually available
+            # Detect if NVENC is actually available before building codec args
+            use_nvenc = False
             if "nvenc" in codec:
-                # Check if NVENC is actually available in this ffmpeg build
                 try:
                     test_result = subprocess.run(
                         [ffmpeg_path, "-hide_banner", "-encoders"],
                         capture_output=True, text=True, timeout=5
                     )
-                    has_nvenc = "nvenc" in test_result.stdout.lower()
+                    use_nvenc = "nvenc" in test_result.stdout.lower()
                 except:
-                    has_nvenc = False
+                    use_nvenc = False
                 
-                if not has_nvenc:
+                if not use_nvenc:
                     # Fall back to libx264/libx265
                     if "hevc" in codec or "h265" in codec:
                         codec = "libx265"
                     else:
                         codec = "libx264"
                     print(f"[VideoNodes] NVENC not available in ffmpeg, falling back to {codec}")
-                    args = [args[0]] + args[1:args.index("-c:v")] + ["-c:v", codec, "-crf", str(crf)]
-                else:
-                    # NVENC available, but use simple quality setting
-                    args += ["-b:v", "5M"]  # Use bitrate instead of complex quality options
-            else:
-                args += ["-crf", str(crf)]
             
-            args += extra_args
+            # Add codec
+            args += ["-c:v", codec]
+            
+            # Add quality settings based on actual codec being used
+            if use_nvenc:
+                # NVENC: use bitrate for simplicity
+                args += ["-b:v", "5M"]
+            else:
+                # Software encoders: use CRF for quality
+                args += ["-crf", str(crf)]
+                # Use standard libx264/libx265 preset instead of NVENC presets
+                args += ["-preset", "medium"]
+            
             args += ["-pix_fmt", config["pix_fmt"]]
             
             # Prepare images
